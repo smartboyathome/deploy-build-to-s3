@@ -1,11 +1,20 @@
 import * as AWS from "aws-sdk";
 import * as mimeTypes from "mime-types";
+import * as zlib from "zlib";
 
 export interface IErrorHandler {
     (message: string, err: object): void;
 }
 
 export class Website {
+    private static readonly GZIP_MIME_TYPES = new Set([
+        "text/plain",
+        "text/html",
+        "text/css",
+        "application/javascript",
+        "application/json"
+    ]);
+
     private s3: AWS.S3;
 
     constructor(private bucketName: string, private keyPrefix: string, private onError: IErrorHandler) {
@@ -20,8 +29,7 @@ export class Website {
                 data.push(chunk);
             })
             .on("end", () => {
-                let params : any = {
-                    Body: Buffer.concat(data),
+                let params : AWS.S3.PutObjectRequest = {
                     Bucket: this.bucketName,
                     Key: fileName,
                     ACL: "public-read"
@@ -29,6 +37,15 @@ export class Website {
                 const contentType = mimeTypes.lookup(fileName);
                 if (contentType) {
                     params.ContentType = contentType;
+                }
+
+                const body = Buffer.concat(data);
+
+                if (Website.GZIP_MIME_TYPES.has(contentType)) {
+                    params.Body = zlib.gzipSync(body);
+                    params.ContentEncoding = "gzip";
+                } else {
+                    params.Body = body;
                 }
 
                 this.s3.putObject(params, (err: object) => {
