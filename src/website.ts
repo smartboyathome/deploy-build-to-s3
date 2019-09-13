@@ -1,6 +1,7 @@
 import * as AWS from "aws-sdk";
 import * as mimeTypes from "mime-types";
 import * as zlib from "zlib";
+import * as crypto from "crypto";
 
 export interface IErrorHandler {
     (message: string, err: object): void;
@@ -28,7 +29,7 @@ export class Website {
             .on("data", (chunk: string) => {
                 data.push(chunk);
             })
-            .on("end", () => {
+            .on("end", async () => {
                 let params : AWS.S3.PutObjectRequest = {
                     Bucket: this.bucketName,
                     Key: fileName,
@@ -48,11 +49,17 @@ export class Website {
                     params.Body = body;
                 }
 
-                this.s3.putObject(params, (err: object) => {
-                    if(err){
-                        this.onError("Error uploading file to s3 bucket", err);
-                    }
-                });
+                const previousObjectMeta = await this.s3.headObject({Bucket: this.bucketName, Key: fileName}).promise();
+
+                const currentHash = previousObjectMeta.ETag ? crypto.createHash('md5').update(params.Body as Buffer).digest('hex') : "";
+
+                if (!previousObjectMeta.ETag || previousObjectMeta.ETag !== `"${currentHash}"`) {
+                    this.s3.putObject(params, (err: object) => {
+                        if(err){
+                            this.onError("Error uploading file to s3 bucket", err);
+                        }
+                    });
+                }
             });
     }
 
